@@ -1,0 +1,144 @@
+(function () {
+  "use strict";
+
+  const url =
+    "https://raw.githubusercontent.com/supermanone-boop/models/main/genesis.glb";
+
+  // 🚉 長距離ルート（そのまま使用）
+  const P = [
+    [135.484287, 34.729354],
+    [135.484426, 34.730132],
+    [135.484420, 34.730883],
+    [135.484317, 34.731626],
+    [135.483011, 34.737405],
+    [135.482439, 34.738706],
+    [135.481521, 34.739917],
+    [135.475520, 34.747133],
+    [135.475101, 34.748230],
+    [135.475035, 34.749123],
+    [135.475113, 34.764417],
+    [135.474814, 34.765279],
+    [135.474344, 34.765803],
+    [135.469414, 34.768360],
+    [135.468518, 34.769214],
+    [135.467723, 34.770969]
+  ];
+
+  const SPEED = 18;
+  const HEIGHT = 20; // ← 地面+10m（統一）
+
+  const TRAINS = [];
+
+  // --------------------------
+  // 🚆 列車生成（上下線対応）
+  // --------------------------
+  function spawnTrain(dir) {
+    const viewer = geofs.api.viewer;
+
+    const startIndex = dir === 1 ? 0 : P.length - 1;
+
+    const pos = Cesium.Cartesian3.fromDegrees(
+      P[startIndex][0],
+      P[startIndex][1],
+      HEIGHT
+    );
+
+    const model = viewer.scene.primitives.add(
+      Cesium.Model.fromGltf({
+        url,
+        modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(pos),
+        scale: 1
+      })
+    );
+
+    TRAINS.push({
+      model,
+      i: startIndex,
+      t: 0,
+      dir,
+      last: performance.now()
+    });
+
+    console.log(dir === 1 ? "🚆 上り発車" : "🚆 下り発車");
+  }
+
+  // --------------------------
+  // ⏱ 3分ごとに上下発車
+  // --------------------------
+  setInterval(() => {
+    spawnTrain(1);
+    spawnTrain(-1);
+  }, 3 * 60 * 1000);
+
+  // --------------------------
+  // 🚆 更新ループ
+  // --------------------------
+  function update() {
+    const now = performance.now();
+
+    for (const tr of TRAINS) {
+      const dt = (now - tr.last) / 1000;
+      tr.last = now;
+
+      const next = tr.i + tr.dir;
+
+      const a = P[tr.i];
+      const b = P[next];
+
+      if (!b) continue;
+
+      const dx = (a[0] - b[0]) * 111000;
+      const dy = (a[1] - b[1]) * 111000;
+      const d = Math.sqrt(dx * dx + dy * dy);
+
+      const step = (SPEED * dt) / d;
+      tr.t += step;
+
+      if (tr.t >= 1) {
+        tr.t = 0;
+        tr.i = next;
+
+        // 🔁 折り返し運転
+        if (tr.i >= P.length - 1) tr.dir = -1;
+        if (tr.i <= 0) tr.dir = 1;
+      }
+
+      const lon = a[0] + (b[0] - a[0]) * tr.t;
+      const lat = a[1] + (b[1] - a[1]) * tr.t;
+
+      const pos = Cesium.Cartesian3.fromDegrees(lon, lat, HEIGHT);
+
+      // 🧭 進行方向向き合わせ
+      const heading = Math.atan2(
+        b[0] - a[0],
+        b[1] - a[1]
+      );
+
+      const hpr = Cesium.Matrix3.fromHeadingPitchRoll(
+        new Cesium.HeadingPitchRoll(heading, 0, 0)
+      );
+
+      const m = Cesium.Transforms.eastNorthUpToFixedFrame(pos);
+
+      Cesium.Matrix4.multiplyByMatrix3(m, hpr, m);
+
+      tr.model.modelMatrix = m;
+    }
+  }
+
+  setInterval(update, 50);
+
+  // --------------------------
+  // 🚀 GeoFS待機起動
+  // --------------------------
+  const wait = setInterval(() => {
+    if (window.geofs && geofs.api && window.Cesium) {
+      clearInterval(wait);
+
+      console.log("🚆 鉄道システム起動");
+
+      spawnTrain(1);
+      spawnTrain(-1);
+    }
+  }, 500);
+})();
