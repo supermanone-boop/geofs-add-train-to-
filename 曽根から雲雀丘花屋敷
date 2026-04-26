@@ -1,0 +1,153 @@
+(function () {
+  "use strict";
+
+  const url =
+    "https://raw.githubusercontent.com/supermanone-boop/models/main/genesis.glb";
+
+  // 🚉 宝塚線ルート
+  const P = [
+    [135.467466, 34.771884],
+    [135.463039, 34.785293],
+    [135.462645, 34.786199],
+    [135.461834, 34.787151],
+    [135.460370, 34.788088],
+    [135.451201, 34.791746],
+    [135.450646, 34.792213],
+    [135.447602, 34.797574],
+    [135.447401, 34.798136],
+    [135.446648, 34.803116],
+    [135.445537, 34.808124],
+    [135.445265, 34.808873],
+    [135.444737, 34.809417],
+    [135.436317, 34.814269],
+    [135.421490, 34.824546],
+    [135.419569, 34.825847],
+    [135.417426, 34.826666],
+    [135.413139, 34.827532],
+    [135.409015, 34.827279],
+    [135.408428, 34.827349],
+    [135.406109, 34.828111],
+    [135.405042, 34.828149],
+    [135.403979, 34.827818],
+    [135.402450, 34.827084]
+  ];
+
+  const SPEED = 18;
+
+  // 🚆 勾配設定
+  const BASE_HEIGHT = 20;
+  const MAX_RISE = 43.2;
+
+  const TRAINS = [];
+
+  // --------------------------
+  // 🚆 列車生成
+  // --------------------------
+  function spawnTrain(dir) {
+    const viewer = geofs.api.viewer;
+
+    const startIndex = dir === 1 ? 0 : P.length - 1;
+
+    const pos = Cesium.Cartesian3.fromDegrees(
+      P[startIndex][0],
+      P[startIndex][1],
+      BASE_HEIGHT
+    );
+
+    const model = viewer.scene.primitives.add(
+      Cesium.Model.fromGltf({
+        url,
+        modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(pos),
+        scale: 1
+      })
+    );
+
+    TRAINS.push({
+      model,
+      i: startIndex,
+      t: 0,
+      dir,
+      last: performance.now()
+    });
+
+    console.log(dir === 1 ? "🚆 上り（宝塚方面）" : "🚆 下り（大阪方面）");
+  }
+
+  // --------------------------
+  // ⏱ 3分ダイヤ
+  // --------------------------
+  setInterval(() => {
+    spawnTrain(1);
+    spawnTrain(-1);
+  }, 3 * 60 * 1000);
+
+  // --------------------------
+  // 🚆 更新ループ
+  // --------------------------
+  function update() {
+    const now = performance.now();
+
+    for (const tr of TRAINS) {
+      const dt = (now - tr.last) / 1000;
+      tr.last = now;
+
+      const next = tr.i + tr.dir;
+
+      const a = P[tr.i];
+      const b = P[next];
+
+      if (!b) continue;
+
+      const dx = (a[0] - b[0]) * 111000;
+      const dy = (a[1] - b[1]) * 111000;
+      const d = Math.sqrt(dx * dx + dy * dy);
+
+      const step = (SPEED * dt) / d;
+      tr.t += step;
+
+      if (tr.t >= 1) {
+        tr.t = 0;
+        tr.i = next;
+
+        if (tr.i >= P.length - 1) tr.dir = -1;
+        if (tr.i <= 0) tr.dir = 1;
+      }
+
+      const lon = a[0] + (b[0] - a[0]) * tr.t;
+      const lat = a[1] + (b[1] - a[1]) * tr.t;
+
+      // 🚆 勾配（比例で43.2m上昇）
+      const height = BASE_HEIGHT + (tr.t * MAX_RISE);
+
+      const pos = Cesium.Cartesian3.fromDegrees(lon, lat, height);
+
+      // 🧭 向き合わせ
+      const heading = Math.atan2(b[0] - a[0], b[1] - a[1]);
+
+      const hpr = Cesium.Matrix3.fromHeadingPitchRoll(
+        new Cesium.HeadingPitchRoll(heading, 0, 0)
+      );
+
+      const m = Cesium.Transforms.eastNorthUpToFixedFrame(pos);
+
+      Cesium.Matrix4.multiplyByMatrix3(m, hpr, m);
+
+      tr.model.modelMatrix = m;
+    }
+  }
+
+  setInterval(update, 50);
+
+  // --------------------------
+  // 🚀 起動待機
+  // --------------------------
+  const wait = setInterval(() => {
+    if (window.geofs && geofs.api && window.Cesium) {
+      clearInterval(wait);
+
+      console.log("🚆 宝塚線（勾配付き）起動");
+      spawnTrain(1);
+      spawnTrain(-1);
+    }
+  }, 500);
+})();
