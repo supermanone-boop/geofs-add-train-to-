@@ -1,0 +1,148 @@
+(function () {
+  "use strict";
+
+  const url =
+    "https://raw.githubusercontent.com/supermanone-boop/models/main/genesis.glb";
+
+  // 🚆 山陽電鉄（実測LLA）
+  const P = [
+    [135.127564, 34.655114, 18.13],
+    [135.120817, 34.649014, 21.37],
+    [135.120036, 34.648533, 20.31],
+    [135.117017, 34.646467, 15.51],
+    [135.116639, 34.646156, 14.69],
+    [135.116364, 34.645217, 14.07],
+    [135.115714, 34.644942, 12.38],
+    [135.115411, 34.644561, 9.27],
+    [135.115092, 34.644308, 9.27],
+    [135.114419, 34.643967, 0],
+    [135.113889, 34.643825, 0],
+    [135.108922, 34.642803, 0],
+    [135.106381, 34.641678, 14.92],
+    [135.105450, 34.640933, 15.1],
+    [135.103422, 34.639547, 14.66],
+    [135.097692, 34.636414, 11.54],
+    [135.096650, 34.635922, 7.42],
+    [135.090372, 34.634703, 9.54],
+    [135.088978, 34.634519, 9.86],
+    [135.087764, 34.634089, 11.24],
+    [135.087056, 34.633450, 6.33],
+    [135.085575, 34.633014, 7.2],
+    [135.075006, 34.631753, 21.05],
+    [135.071950, 34.631461, 24.11],
+    [135.067447, 34.629872, 21.96],
+    [135.064000, 34.629283, 17.87],
+    [135.062589, 34.629144, 16.87],
+    [135.061797, 34.629167, 14.94],
+    [135.060500, 34.629425, 8.2],
+    [135.053764, 34.629494, 9.08],
+    [135.047558, 34.628719, 13.91],
+    [135.045733, 34.628705, 14.9],
+    [135.044664, 34.628958, 15.76],
+    [135.043522, 34.629672, 17.12],
+    [135.040628, 34.632681, 20.63],
+    [135.033775, 34.634150, 13.68],
+    [135.031922, 34.634733, 2.66],
+    [135.028622, 34.638308, 3.86],
+    [135.026803, 34.639433, 3.67],
+    [135.024697, 34.640392, 4.89],
+    [135.021369, 34.642372, 4.88],
+    [135.017206, 34.643481, 4.2],
+    [135.008064, 34.646633, 4.17]
+  ];
+
+  const SPEED = 18;
+
+  const TRAINS = [];
+
+  function spawn(dir) {
+    const viewer = geofs.api.viewer;
+
+    const start = dir === 1 ? 0 : P.length - 1;
+
+    const pos = Cesium.Cartesian3.fromDegrees(
+      P[start][0],
+      P[start][1],
+      P[start][2]
+    );
+
+    const model = viewer.scene.primitives.add(
+      Cesium.Model.fromGltf({
+        url,
+        modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(pos),
+        scale: 1
+      })
+    );
+
+    TRAINS.push({
+      model,
+      i: start,
+      t: 0,
+      dir,
+      last: performance.now()
+    });
+  }
+
+  function update() {
+    const now = performance.now();
+
+    for (const tr of TRAINS) {
+      const dt = (now - tr.last) / 1000;
+      tr.last = now;
+
+      const next = tr.i + tr.dir;
+
+      const a = P[tr.i];
+      const b = P[next];
+      if (!b) continue;
+
+      const dx = (a[0] - b[0]) * 111000;
+      const dy = (a[1] - b[1]) * 111000;
+      const d = Math.sqrt(dx * dx + dy * dy);
+
+      const step = (SPEED * dt) / d;
+      tr.t += step;
+
+      if (tr.t >= 1) {
+        tr.t = 0;
+        tr.i = next;
+
+        if (tr.i >= P.length - 1) tr.dir = -1;
+        if (tr.i <= 0) tr.dir = 1;
+      }
+
+      const lon = a[0] + (b[0] - a[0]) * tr.t;
+      const lat = a[1] + (b[1] - a[1]) * tr.t;
+
+      // 🚆 高度も補間（ここが超重要）
+      const alt = a[2] + (b[2] - a[2]) * tr.t;
+
+      const pos = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+
+      const heading = Math.atan2(b[0] - a[0], b[1] - a[1]);
+
+      const hpr = Cesium.Matrix3.fromHeadingPitchRoll(
+        new Cesium.HeadingPitchRoll(heading, 0, 0)
+      );
+
+      const m = Cesium.Transforms.eastNorthUpToFixedFrame(pos);
+
+      Cesium.Matrix4.multiplyByMatrix3(m, hpr, m);
+
+      tr.model.modelMatrix = m;
+    }
+  }
+
+  setInterval(update, 50);
+
+  const wait = setInterval(() => {
+    if (window.geofs && geofs.api && window.Cesium) {
+      clearInterval(wait);
+
+      console.log("🚆 山陽電鉄（実標高）起動");
+
+      spawn(1);
+      spawn(-1);
+    }
+  }, 500);
+})();
